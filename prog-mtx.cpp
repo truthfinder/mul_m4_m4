@@ -1,3 +1,6 @@
+//#include <windows.h>
+//#include <conio.h>
+
 #ifdef IACA_MARKS_OFF
 
 #	define IACA_FROM
@@ -5,7 +8,13 @@
 
 #else
 
-#include "../iaca/iacaMarks.h"
+#if defined IACA3
+#	include "../iaca/iacaMarks.h"
+#elif defined IACA2
+#	include "../iaca2/iacaMarks.h"
+#else
+#	error iaca version not defined
+#endif
 
 #	ifdef _WIN64
 #		define IACA_FROM IACA_VC64_START
@@ -23,8 +32,17 @@
 #include <cstdlib>
 #include <cassert>
 #include <intrin.h>
+#include <chrono>
+#include <array>
+#include <stdlib.h>
+
+#include "timer.h"
+
+#define __vmathcall  __vectorcall
 
 //#define __FMA__
+//#define __AVX2__
+//#define __AVX512__
 
 // 00, 01, 02, 03
 // 10, 11, 12, 13
@@ -62,7 +80,7 @@ std::ostream& operator << (std::ostream& os, vec4 const& v) {
 		<< '(' << v.x << ',' << v.y << ',' << v.z << ',' << v.w << ')';
 }
 
-struct alignas(sizeof(__m256)) mtx4 {
+struct alignas(sizeof(__m512)) mtx4 {
 	union {
 		struct {
 			float
@@ -71,8 +89,9 @@ struct alignas(sizeof(__m256)) mtx4 {
 				_32, _22, _12, _02,
 				_33, _23, _13, _03;
 		};
-		__m128 r[4];
-		__m256 s[2];
+		__m128 xmm[4];
+		__m256 ymm[2];
+		__m512 zmm;
 		vec4 v[4];
 	};
 
@@ -88,8 +107,8 @@ struct alignas(sizeof(__m256)) mtx4 {
 		, _30(i30),  _31(i31),  _32(i32),  _33(i33)
 	{}
 
-	operator __m128 const* () const { return r; }
-	operator __m128* () { return r; }
+	operator __m128 const* () const { return xmm; }
+	operator __m128* () { return xmm; }
 
 	bool operator == (mtx4 const& m) const {
 		return v[0]==m.v[0] && v[1]==m.v[1] && v[2]==m.v[2] && v[3]==m.v[3];
@@ -123,7 +142,7 @@ std::ostream& operator << (std::ostream& os, mtx4 const& m) {
 		<< '|' << std::setw(w) << m._30 << ',' << std::setw(w) << m._31 << ',' << std::setw(w) << m._32 << ',' << std::setw(w) << m._33 << '|';
 }
 
-void mul_mtx4_mtx4_loop(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
+void __vmathcall mul_mtx4_mtx4_loop(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
 	typedef float raw4x4[4][4];
 
 	raw4x4 const& m = **reinterpret_cast<raw4x4 const* const*>(&_m);
@@ -151,7 +170,7 @@ void mul_mtx4_mtx4_loop(__m128* const _r, __m128 const* const _m, __m128 const* 
 	}
 }
 
-void mul_mtx4_mtx4_unroll(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
+void __vmathcall mul_mtx4_mtx4_unroll(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
 	mtx4 const& m = **reinterpret_cast<mtx4 const* const*>(&_m);
 	mtx4 const& n = **reinterpret_cast<mtx4 const* const*>(&_n);
 	mtx4&       r = **reinterpret_cast<mtx4* const*>(&_r);
@@ -182,7 +201,7 @@ void mul_mtx4_mtx4_unroll(__m128* const _r, __m128 const* const _m, __m128 const
 	//IACA_TO
 }
 
-void mul_mtx4_mtx4_sse_v1(__m128* const r, __m128 const* const m, __m128 const* const n) {
+void __vmathcall mul_mtx4_mtx4_sse_v1(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	// 00, 01, 02, 03
 	// 10, 11, 12, 13
 	// 20, 21, 22, 23
@@ -294,9 +313,9 @@ template <int a, int b, int c, int d> __m128 shufd(__m128 const v)
 template <int i> __m128 shufd(__m128 const v)
 { return _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(v), _MM_SHUFFLE(i, i, i, i))); }
 
-void mul_mtx4_mtx4_sse_v2(__m128* const r, __m128 const* const m, __m128 const* const n) {
+void __vmathcall mul_mtx4_mtx4_sse_v2(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	//IACA_FROM
-	//19; 16
+	// 19; 16
 	r[0] = m[0]*shuf<3>(n[0]) + m[1]*shuf<2>(n[0]) + m[2]*shuf<1>(n[0]) + m[3]*shuf<0>(n[0]);
 	r[1] = m[0]*shuf<3>(n[1]) + m[1]*shuf<2>(n[1]) + m[2]*shuf<1>(n[1]) + m[3]*shuf<0>(n[1]);
 	r[2] = m[0]*shuf<3>(n[2]) + m[1]*shuf<2>(n[2]) + m[2]*shuf<1>(n[2]) + m[3]*shuf<0>(n[2]);
@@ -308,7 +327,7 @@ __m128 mad(__m128 const a, __m128 const b, __m128 const c) {
 	return _mm_add_ps(_mm_mul_ps(a, b), c);
 }
 
-void mul_mtx4_mtx4_sse_v3(__m128* const r, __m128 const* const m, __m128 const* const n) {
+void __vmathcall mul_mtx4_mtx4_sse_v3(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	//IACA_FROM
 	// 18.89; 16
 	r[0] = mad(m[0], shuf<3>(n[0]), m[1]*shuf<2>(n[0])) + mad(m[2], shuf<1>(n[0]), m[3]*shuf<0>(n[0]));
@@ -318,7 +337,7 @@ void mul_mtx4_mtx4_sse_v3(__m128* const r, __m128 const* const m, __m128 const* 
 	//IACA_TO
 }
 
-void mul_mtx4_mtx4_sse_v4(__m128* const r, __m128 const* const m, __m128 const* const n) {
+void __vmathcall mul_mtx4_mtx4_sse_v4(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	//IACA_FROM
 	// 18.89; 16
 	_mm_stream_ps(&r[0].m128_f32[0],
@@ -334,8 +353,33 @@ void mul_mtx4_mtx4_sse_v4(__m128* const r, __m128 const* const m, __m128 const* 
 		mad(m[0], shuf<3>(n[3]), m[1]*shuf<2>(n[3])) + mad(m[2], shuf<1>(n[3]), m[3]*shuf<0>(n[3])));
 	//IACA_TO
 }
+/*
+void __vmathcall mul_mtx4_mtx4_sse_v5(__m128* const _r, __m128 const* const m, __m128 const* const n) {
+	mtx4& r = **reinterpret_cast<mtx4* const*>(&_r);
+	IACA_FROM
+	r._00 = _mm_cvtss_f32(_mm_dp_ps(m[0], n[0], 0x1f));
+	r._01 = _mm_cvtss_f32(_mm_dp_ps(m[0], n[1], 0x1f));
+	r._02 = _mm_cvtss_f32(_mm_dp_ps(m[0], n[2], 0x1f));
+	r._03 = _mm_cvtss_f32(_mm_dp_ps(m[0], n[3], 0x1f));
 
-void mul_mtx4_mtx4_avx_v1(__m128* const r, __m128 const* const m, __m128 const* const n) {
+	r._10 = _mm_cvtss_f32(_mm_dp_ps(m[1], n[0], 0x1f));
+	r._11 = _mm_cvtss_f32(_mm_dp_ps(m[1], n[1], 0x1f));
+	r._12 = _mm_cvtss_f32(_mm_dp_ps(m[1], n[2], 0x1f));
+	r._13 = _mm_cvtss_f32(_mm_dp_ps(m[1], n[3], 0x1f));
+
+	r._20 = _mm_cvtss_f32(_mm_dp_ps(m[2], n[0], 0x1f));
+	r._21 = _mm_cvtss_f32(_mm_dp_ps(m[2], n[1], 0x1f));
+	r._22 = _mm_cvtss_f32(_mm_dp_ps(m[2], n[2], 0x1f));
+	r._23 = _mm_cvtss_f32(_mm_dp_ps(m[2], n[3], 0x1f));
+
+	r._30 = _mm_cvtss_f32(_mm_dp_ps(m[3], n[0], 0x1f));
+	r._31 = _mm_cvtss_f32(_mm_dp_ps(m[3], n[1], 0x1f));
+	r._32 = _mm_cvtss_f32(_mm_dp_ps(m[3], n[2], 0x1f));
+	r._33 = _mm_cvtss_f32(_mm_dp_ps(m[3], n[3], 0x1f));
+	IACA_TO
+}
+//*/
+void __vmathcall mul_mtx4_mtx4_avx_v1(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	/*
 	r00 = m00*n00 + m01*n10 + m02*n20 + m03*n30 // m0:m1 * [n00]:[n10] + m2:m3 * [n20]:[n30]
 	r10 = m10*n00 + m11*n10 + m12*n20 + m13*n30
@@ -433,8 +477,51 @@ void mul_mtx4_mtx4_avx_v1(__m128* const r, __m128 const* const m, __m128 const* 
 	y7 = _mm256_add_ps(y7, y8);
 	y5 = _mm256_add_ps(y5, y7);
 
-	_mm256_stream_ps(&r[0].m128_f32[0], y1);
-	_mm256_stream_ps(&r[2].m128_f32[0], y5);
+	_mm256_stream_ps(reinterpret_cast<float* const>(r)+0, y1);
+	_mm256_stream_ps(reinterpret_cast<float* const>(r)+8, y5);
+	//IACA_TO
+}
+
+void __vmathcall mul_mtx4_mtx4_avx_v1m(__m128* const _r, __m128 const* const m, __m128 const* const n) {
+	mtx4& r = *reinterpret_cast<mtx4* const>(_r);
+
+	//IACA_FROM
+
+	__m256 mm0 = _mm256_set_m128(m[0], m[0]);
+	__m256 mm1 = _mm256_set_m128(m[1], m[1]);
+	__m256 mm2 = _mm256_set_m128(m[2], m[2]);
+	__m256 mm3 = _mm256_set_m128(m[3], m[3]);
+
+	__m256 n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 y1 = _mm256_permute_ps(n0n1, 0xFF);//3,3,3,3; 0b11'11'11'11; 0b1111'1111
+	__m256 y2 = _mm256_permute_ps(n0n1, 0xAA);//2,2,2,2; 0b10'10'10'10; 0b1010'1010
+	__m256 y3 = _mm256_permute_ps(n0n1, 0x55);//1,1,1,1; 0b01'01'01'01; 0b0101'0101
+	__m256 y4 = _mm256_permute_ps(n0n1, 0x00);//0,0,0,0; 0b00'00'00'00; 0b0000'0000
+
+	y1 = _mm256_mul_ps(y1, mm0);
+	y2 = _mm256_mul_ps(y2, mm1);
+	y3 = _mm256_mul_ps(y3, mm2);
+	y4 = _mm256_mul_ps(y4, mm3);
+
+	y1 = _mm256_add_ps(y1, y2);
+	y3 = _mm256_add_ps(y3, y4);
+	r.ymm[0] = _mm256_add_ps(y1, y3);
+
+	__m256 n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 y5 = _mm256_permute_ps(n2n3, 0xFF);
+	__m256 y6 = _mm256_permute_ps(n2n3, 0xAA);
+	__m256 y7 = _mm256_permute_ps(n2n3, 0x55);
+	__m256 y8 = _mm256_permute_ps(n2n3, 0x00);
+
+	y5 = _mm256_mul_ps(y5, mm0);
+	y6 = _mm256_mul_ps(y6, mm1);
+	y7 = _mm256_mul_ps(y7, mm2);
+	y8 = _mm256_mul_ps(y8, mm3);
+
+	y5 = _mm256_add_ps(y5, y6);
+	y7 = _mm256_add_ps(y7, y8);
+	r.ymm[1] = _mm256_add_ps(y5, y7);
+
 	//IACA_TO
 }
 
@@ -456,7 +543,7 @@ __m256 mad(__m256 const a, __m256 const b, __m256 const c) {
 	return _mm256_add_ps(_mm256_mul_ps(a, b), c);
 }
 
-void mul_mtx4_mtx4_avx_v2(__m128* const r, __m128 const* const m, __m128 const* const n) {
+void __vmathcall mul_mtx4_mtx4_avx_v2(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	//IACA_FROM
 	// 10; 8.58
 	//broadcast makes some profit
@@ -468,12 +555,33 @@ void mul_mtx4_mtx4_avx_v2(__m128* const r, __m128 const* const m, __m128 const* 
 	};
 
 	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
-	_mm256_stream_ps(&r[0].m128_f32[0],
+	_mm256_stream_ps(reinterpret_cast<float*>(r),
 		mad(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+mad(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]));
 
 	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
-	_mm256_stream_ps(&r[2].m128_f32[0],
+	_mm256_stream_ps(reinterpret_cast<float*>(r)+8,
 		mad(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+mad(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]));
+
+	//IACA_TO
+}
+
+void __vmathcall mul_mtx4_mtx4_avx_v2m(__m128* const _r, __m128 const* const m, __m128 const* const n) {
+	mtx4& r = *reinterpret_cast<mtx4* const>(_r);
+	
+	//IACA_FROM
+	
+	__m256 const mm[] {
+		_mm256_broadcast_ps(m+0),
+		_mm256_broadcast_ps(m+1),
+		_mm256_broadcast_ps(m+2),
+		_mm256_broadcast_ps(m+3)
+	};
+
+	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	r.ymm[0] = mad(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+mad(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]);
+
+	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	r.ymm[1] = mad(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+mad(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]);
 
 	//IACA_TO
 }
@@ -482,8 +590,8 @@ __m256 fma(__m256 const a, __m256 const b, __m256 const c) {
 	return _mm256_fmadd_ps(a, b, c);
 }
 
-void mul_mtx4_mtx4_avx_fma(__m128* const r, __m128 const* const m, __m128 const* const n) {
-	IACA_FROM
+void __vmathcall mul_mtx4_mtx4_avx_fma(__m128* const r, __m128 const* const m, __m128 const* const n) {
+	//IACA_FROM
 	// 9.21; 8
 
 	__m256 const mm[]{
@@ -500,7 +608,25 @@ void mul_mtx4_mtx4_avx_fma(__m128* const r, __m128 const* const m, __m128 const*
 	_mm256_stream_ps(&r[2].m128_f32[0],
 		fma(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+fma(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]));
 
-	IACA_TO
+	//IACA_TO
+}
+
+void __vmathcall mul_mtx4_mtx4_avx_fma_m(__m128* const _r, __m128 const* const m, __m128 const* const n) {
+	mtx4& r = **reinterpret_cast<mtx4* const*>(&_r);
+
+	//IACA_FROM
+	__m256 const mm[]{
+		_mm256_broadcast_ps(m + 0),
+		_mm256_broadcast_ps(m + 1),
+		_mm256_broadcast_ps(m + 2),
+		_mm256_broadcast_ps(m + 3) };
+
+	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	r.ymm[0] = fma(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+fma(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]);
+
+	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	r.ymm[1] = fma(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+fma(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]);
+	//IACA_TO
 }
 
 __m512 operator + (__m512 const a, __m512 const b) { return _mm512_add_ps(a, b); }
@@ -517,7 +643,7 @@ __m512 fma(__m512 const a, __m512 const b, __m512 const c) {
 	return _mm512_fmadd_ps(a, b, c);
 }
 
-void mul_mtx4_mtx4_avx512(__m128* const r, __m128 const* const m, __m128 const* const _n) {
+void __vmathcall mul_mtx4_mtx4_avx512(__m128* const r, __m128 const* const m, __m128 const* const _n) {
 	//IACA_FROM
 	// 4.79; 5.42
 	__m512 const mm[]{
@@ -529,6 +655,20 @@ void mul_mtx4_mtx4_avx512(__m128* const r, __m128 const* const m, __m128 const* 
 	__m512 const n = _mm512_load_ps(&_n[0].m128_f32[0]);
 	_mm512_stream_ps(&r[0].m128_f32[0],
 		fma(perm<3>(n), mm[0], perm<2>(n)*mm[1])+fma(perm<1>(n), mm[2], perm<0>(n)*mm[3]));
+	//IACA_TO
+}
+
+void __vmathcall mul_mtx4_mtx4_avx512_m(__m128* const _r, __m128 const* const m, __m128 const* const _n) {
+	mtx4& r = **reinterpret_cast<mtx4* const*>(&_r);
+	//IACA_FROM
+	__m512 const mm[]{
+		_mm512_broadcast_f32x4(m[0]),
+		_mm512_broadcast_f32x4(m[1]),
+		_mm512_broadcast_f32x4(m[2]),
+		_mm512_broadcast_f32x4(m[3]) };
+
+	__m512 const n = _mm512_load_ps(&_n[0].m128_f32[0]);
+	r.zmm = fma(perm<3>(n), mm[0], perm<2>(n)*mm[1])+fma(perm<1>(n), mm[2], perm<0>(n)*mm[3]);
 	//IACA_TO
 }
 
@@ -548,37 +688,257 @@ mtx4 get_mtx4_2() {
 		4.f, 2.f, 7.f, 6.f);
 }
 
+using ts = rts;
+
+template <typename F>
+ts speed_test(F&& f, mtx4 const* const src, mtx4* const dst, std::size_t const size, std::size_t const icount) {
+	mtx4 const identity = mtx4::identity();
+
+	ts t;
+	for (size_t c = 0; c < icount; c++) {
+		for (size_t i = 0; i < size; i++) {
+			f(dst[i], src[i], identity);
+		}
+	}
+	t.stop();
+
+	return t;
+}
+
+void mul_mtx4_mtx4_idle(__m128* const, __m128 const* const, __m128 const* const) {
+	__nop();
+}
+
+#define SPEED_TEST(f, idx) \
+	{ \
+		mtx4 const identity = mtx4::identity(); \
+		ts t; \
+		for (size_t c = 0; c < icount; ++c) { \
+			for (size_t i = 0; i < size; ++i) { \
+				f(dst[i], src[i], identity); \
+			} \
+		} \
+		t.stop(); \
+		t -= t_idle.passed(); \
+		tss[idx] = t; \
+	}
+
 int main() {
 	mtx4 mref = mtx4::zero();
 	mul_mtx4_mtx4_unroll(mref, mtx4::identity(), mtx4::identity());
 	assert(mref == mtx4::identity());
 
 	mtx4 r = mtx4::zero(), m = get_mtx4_1(), n = get_mtx4_2();
+	mtx4 const identity = mtx4::identity();
+
 	mul_mtx4_mtx4_unroll(mref, m, n);
 
-	mul_mtx4_mtx4_loop(r, m, n);
-	assert(r == mref);
+	size_t const icount = 10'000;
+	size_t const size   = 1000;
+	mtx4* src = (mtx4*) _mm_malloc(sizeof(mtx4)*size, 64);
+	mtx4* dst = (mtx4*) _mm_malloc(sizeof(mtx4)*size, 64);
 
-	mul_mtx4_mtx4_sse_v1(r, m, n);
-	assert(r == mref);
+	for (size_t i = 0; i < size; ++i) {
+		src[i] = mtx4::identity();
+		dst[i] = mtx4::identity();
+	}
 
-	mul_mtx4_mtx4_sse_v2(r, m, n);
-	assert(r == mref);
+	ts t_idle;
+	for (size_t c = 0; c < icount; ++c) {
+		for (size_t i = 0; i < size; ++i) {
+			mul_mtx4_mtx4_idle(dst[i], src[i], identity);
+		}
+	}
+	t_idle.stop();
 
-	mul_mtx4_mtx4_sse_v3(r, m, n);
-	assert(r == mref);
+	std::cout << "cpuid+cycle tics: " << t_idle.passed() << std::endl;
+	std::cout << "cpuid+cycle tics per iteration: " << t_idle.passed() / (1. * size * icount) << std::endl;
 
-	mul_mtx4_mtx4_sse_v4(r, m, n);
-	assert(r == mref);
+	//
+	//SetThreadAffinityMask(GetCurrentThread(), 1 << (0));
+	//SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
-	mul_mtx4_mtx4_avx_v1(r, m, n);
-	assert(r == mref);
+	//
 
-#	ifdef __FMA__ // до сих пор живу без поддержки fma :((
-	mul_mtx4_mtx4_avx_v2(r, m, n);
-	assert(r == mref);
+	using mul_mtx4_mtx4_t = void (__vmathcall *)(__m128* const r, __m128 const* const m, __m128 const* const n);
+	using func_data_t = std::tuple<std::string, mul_mtx4_mtx4_t, float, float>;
+
+	func_data_t funcs[] {
+		{ "unroll" , mul_mtx4_mtx4_unroll    ,  69.95f,  64.00f },
+		{ "loop"   , mul_mtx4_mtx4_loop      , 233.60f, 190.08f },
+		{ "sse_v1" , mul_mtx4_mtx4_sse_v1    ,  18.89f,  16.00f },
+		{ "sse_v2" , mul_mtx4_mtx4_sse_v2    ,  19.00f,  16.00f },
+		{ "sse_v3" , mul_mtx4_mtx4_sse_v3    ,  18.89f,  16.00f },
+		{ "sse_v4s", mul_mtx4_mtx4_sse_v4    ,  18.89f,  16.00f },
+#		ifdef __AVX__
+		{ "avx_v1m", mul_mtx4_mtx4_avx_v1m   ,  13.00f,  12.00f },
+		{ "avx_v1s", mul_mtx4_mtx4_avx_v1    ,  13.00f,  12.00f },
+		{ "avx_v2m", mul_mtx4_mtx4_avx_v2m   ,  10.00f,   8.58f },
+		{ "avx_v2s", mul_mtx4_mtx4_avx_v2    ,  10.00f,   8.58f },
+#		endif
+#		ifdef __FMA__
+		{ "AVX+FMAm", mul_mtx4_mtx4_avx_fma_m,   9.21f,   8.00f },
+		{ "AVX+FMAs", mul_mtx4_mtx4_avx_fma  ,   9.21f,   8.00f },
+#		endif
+#		ifdef __AVX512__
+		{ "AVX512m", mul_mtx4_mtx4_avx512m   ,   4.79f,   5.42f  };
+		{ "AVX512s", mul_mtx4_mtx4_avx512    ,   4.79f,   5.42f  },
+#		endif
+	};
+	
+	{
+		ts t;
+		for (size_t c = 0; c < icount; ++c) {
+			for (size_t i = 0; i < size; ++i) {
+				mul_mtx4_mtx4_avx_v2m(dst[i], src[i], identity);
+			}
+		}
+		t.stop();
+
+		std::cout << " direct call tics: " << t.passed() * (1.f / (size*icount)) << std::endl;
+	}
+
+	{
+		mul_mtx4_mtx4_t f = mul_mtx4_mtx4_avx_v2m;
+		ts t;
+		for (size_t c = 0; c < icount; ++c) {
+			for (size_t i = 0; i < size; ++i) {
+				f(dst[i], src[i], identity);
+			}
+		}
+		t.stop();
+
+		std::cout << "pointer call tics: "  << t.passed() * (1.f / (size*icount)) << std::endl;
+	}
+
+
+	// check result correctness
+	for (size_t i = 0; i < std::size(funcs); i++) {
+		std::get<1>(funcs[i])(r, m, n);
+		assert(r == mref);
+	}
+
+	std::array<ts, std::size(funcs)> tss;
+
+	/* slower, +70-80% tics per `mul_mtx4_mtx4_t` function call
+	for (size_t i = 0; i < std::size(funcs); i++) {
+		tss[i] = speed_test(std::get<1>(funcs[i]), src, dst, size, icount);
+		tss[i] -= t_idle.passed();
+	}
+	//*/
+
+	// run speed tests
+	SPEED_TEST(mul_mtx4_mtx4_unroll   ,  0)
+	SPEED_TEST(mul_mtx4_mtx4_loop     ,  1);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v1   ,  2);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v2   ,  3);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v3   ,  4);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v4   ,  5);
+#	ifdef __AVX__
+	SPEED_TEST(mul_mtx4_mtx4_avx_v1m  ,  6);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v1   ,  7);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v2m  ,  8);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v2   ,  9);
+#	endif
+#	ifdef __FMA__
+	SPEED_TEST(mul_mtx4_mtx4_avx_fma_m, 10);
+	SPEED_TEST(mul_mtx4_mtx4_avx_fma  , 11);
+#	endif
+#	ifdef __AVX512__
+	SPEED_TEST(mul_mtx4_mtx4_avx512m  , 12);
+	SPEED_TEST(mul_mtx4_mtx4_avx512   , 13);
 #	endif
 
-	std::cout << r << std::endl;
+	// display results
+	std::cout << "---------------" << std::endl;
+
+	static const double K = 1. / (size * icount);
+	for (size_t i = 0; i < std::size(funcs); i++) {
+		std::cout << std::setprecision(2)
+			<< std::setw(10) << std::get<0>(funcs[i]).c_str()
+			<< ": " << std::setw(5) << std::get<2>(funcs[0])/std::get<2>(funcs[i])
+			<< "; " << std::setw(5) << static_cast<double>(tss[0].passed())/tss[i].passed()
+			<< "; " << std::setw(6) << std::get<2>(funcs[i])
+			<< "; " << std::setw(6) << std::fixed << tss[i].passed() * K
+			<< std::endl;
+	}
+
+	std::cout << "---------------" << std::endl;
+	std::cout << dst[0] << std::endl;
+
+	_mm_free(src);
+	_mm_free(dst);
+
+	//_getch();
 	return 0;
 }
+
+/*
+unroll : 69.95
+sse_v1 : 18.89   3.7
+sse_v2 : 19      3.68
+sse_v3 : 18.89   3.7
+sse_v4 : 18.89   3.7
+avx_v1 : 12.53   5,58
+avx_v1m: 12.53   5,58
+avx_v2 : 10.0    6.995
+avx_v2m: 10.0    6.995
+
+i7-8700K
+x86:
+cpuid+cycle tics: 843258
+cpuid+cycle tics per iteration: 0.843258
+loop    : 66.4909;  1.41009
+unroll  : 93.7578;  1.00000
+SSE_v1  : 22.9243;  4.08988
+SSE_v2  : 23.1071;  4.05753
+SSE_v3  : 23.2176;  4.03822
+SSE_v4m : 22.8327;  4.10629
+AVX_v1s : 17.6859;  5.30128
+AVX_v1m : 19.8134;  4.73205
+AVX_v2s : 12.8365;  7.30400
+AVX_v2m : 19.4661;  4.81646
+AVX+FMAs: 11.5527;  8.11565
+AVX+FMAm: 6.90574; 13.57680
+
+x64:
+cpuid+cycle tics: 1054144
+cpuid+cycle tics per iteration: 1.05414
+loop    : 61.9036;  1.31207
+unroll  : 81.2216;  1.00000
+SSE_v1  : 17.7330;  4.58024
+SSE_v2  : 18.1628;  4.47187
+SSE_v3  : 17.5821;  4.61957
+SSE_v4m : 18.0715;  4.49445
+AVX_v1s : 13.3131;  6.10089
+AVX_v1m : 12.8743;  6.30880
+AVX_v2s : 7.35544; 11.04240
+AVX_v2m : 6.67235; 12.17290
+AVX+FMAs: 7.61180; 10.67050
+AVX+FMAm: 5.56045; 14.60700
+
+i7-3770
+x86:
+    unroll:     1;     1;     70;  50.75
+      loop:  0.30;  0.43; 233.60; 119.21
+    sse_v1:  3.70;  1.84;  18.89;  27.51
+    sse_v2:  3.68;  1.84;  19.00;  27.61
+    sse_v3:  3.70;  1.86;  18.89;  27.22
+   sse_v4s:  3.70;  1.87;  18.89;  27.18
+   avx_v1m:  5.38;  2.64;  13.00;  19.21
+   avx_v1s:  5.38;  2.53;  13.00;  20.03
+   avx_v2m:  6.99;  3.93;  10.00;  12.91
+   avx_v2s:  6.99;  2.93;  10.00;  17.34
+
+x64:
+    unroll:     1;     1;     70;  68.60
+      loop:  0.30;  0.57; 233.60; 119.37
+    sse_v1:  3.70;  3.12;  18.89;  21.98
+    sse_v2:  3.68;  3.25;  19.00;  21.09
+    sse_v3:  3.70;  3.09;  18.89;  22.19
+   sse_v4s:  3.70;  3.06;  18.89;  22.39
+   avx_v1m:  5.38;  7.13;  13.00;   9.61
+   avx_v1s:  5.38;  4.06;  13.00;  16.90
+   avx_v2m:  6.99;  7.45;  10.00;   9.20
+   avx_v2s:  6.99;  4.68;  10.00;  14.64
+*/
