@@ -854,7 +854,7 @@ int main() {
 
 	static const double K = 1. / (size * icount);
 	for (size_t i = 0; i < std::size(funcs); i++) {
-		std::cout << std::setprecision(2)
+		std::cout << std::setprecision(2) << std::fixed
 			<< std::setw(10) << std::get<0>(funcs[i]).c_str()
 			<< ": " << std::setw(5) << std::get<2>(funcs[0])/std::get<2>(funcs[i])
 			<< "; " << std::setw(5) << static_cast<double>(tss[0].passed())/tss[i].passed()
