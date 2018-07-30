@@ -7,6 +7,10 @@
 @rem if "%1"=="x64" call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat"
 @rem if "%1"=="" call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\Tools\VsDevCmd.bat" -arch=x86
 
+@rem /GL brokes IACA markers
+@rem /GL required for faster execution
+@rem /arch:AVX required for correct AVX execution (removes SSE/AVX penalties?)
+
 @echo off
 
 set arch="x32"
@@ -16,24 +20,23 @@ set defines="/D__SSE__ /D__AVX__"
 set fname="prog-mtx"
 
 set iarch="HSW"
-rem set iarch="SKX"
 
 for %%x in (%*) do (
 if %%x==x32 (set arch="x32")
 if %%x==x86 (set arch="x32")
 if %%x==x64 (set arch="x64")
 if %%x==avx (set defines=%defines% "/D__AVX__")
-if %%x==fma (set defines=%defines% "/D__AVX__ /D__FMA__")
-if %%x==avx2 (set defines=%defines% "/D__AVX__ /D__FMA__" "/D__AVX2__")
-if %%x==avx512 (set defines=%defines% "/D__AVX__ /D__FMA__" "/D__AVX2__" "/D__AVX512__")
-if %%x==iaca (set iaca=1)
-if %%x==iaca3 (set iaca=1)
-if %%x==iaca2 (set iaca2=1)
-if %%x==ivb (set iarch="IVB")
-if %%x==hsw (set iarch="HSW")
-if %%x==bdw (set iarch="BDW")
-if %%x==skl (set iarch="SKL")
-if %%x==skx (set iarch="SKX")
+if %%x==fma (set defines=%defines% "/D__AVX__" "/D__FMA__" && echo "FMA")
+if %%x==avx2 (set defines=%defines% "/D__AVX__" "/D__FMA__" "/D__AVX2__" && echo "AVX2")
+if %%x==avx512 (set defines=%defines% "/D__AVX__" "/D__FMA__" "/D__AVX2__" "/D__AVX512__" && echo "AVX512")
+if %%x==iaca (set iaca=1 && echo "IACA3")
+if %%x==iaca3 (set iaca=1 && echo "IACA3")
+if %%x==iaca2 (set iaca2=1 && echo "IACA2")
+if %%x==ivb (set iarch="IVB" && echo "IVB")
+if %%x==hsw (set iarch="HSW" && echo "HSW")
+if %%x==bdw (set iarch="BDW" && echo "BDW")
+if %%x==skl (set iarch="SKL" && echo "SKL")
+if %%x==skx (set iarch="SKX" && echo "SKX")
 )
 
 @rem if not exist filename.txt exit /b 1
@@ -71,7 +74,7 @@ goto :end
 
 :do_iaca_x32
 echo "iaca3 x32"
-cl /c /std:c++17 /O2 /GL /arch:AVX /EHsc /DIACA3 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%32.txt
+cl /c /std:c++17 /O2 /arch:AVX /EHsc /DIACA3 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%32.txt
 if %errorlevel% neq 0 (echo "cl error" && goto :error)
 ..\iaca\iaca.exe -arch %iarch% %fname%.obj > %fname%32_iaca.txt
 if %errorlevel% neq 0 (echo "iaca error" && goto :error)
@@ -79,7 +82,7 @@ goto :end
 
 :do_iaca_x64
 echo "iaca3 x64"
-cl /c /std:c++17 /O2 /GL /arch:AVX /EHsc /DIACA3 /D_WIN64 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%64.txt
+cl /c /std:c++17 /O2 /arch:AVX /EHsc /DIACA3 /D_WIN64 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%64.txt
 if %errorlevel% neq 0 (echo "cl error" && goto :error)
 ..\iaca\iaca.exe -arch %iarch% %fname%.obj > %fname%64_iaca.txt
 if %errorlevel% neq 0 (echo "iaca error" && goto :error)
@@ -87,15 +90,15 @@ goto :end
 
 :do_iaca2_x32
 echo "iaca2 x32"
-cl /c /std:c++17 /O2 /GL /arch:AVX /EHsc /DIACA2 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%32.txt
+cl /c /std:c++17 /O2 /arch:AVX /EHsc /DIACA2 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%32.txt
 if %errorlevel% neq 0 (echo "cl error" && goto :error)
 ..\iaca2\iaca.exe -32 -arch %iarch% %fname%.obj > %fname%32_iaca.txt
 if %errorlevel% neq 0 (echo "iaca error" && goto :error)
 goto :end
 
 :do_iaca2_x64
-echo "iaca3 x64"
-cl /c /std:c++17 /O2 /GL /arch:AVX /EHsc /DIACA2 /D_WIN64 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%64.txt
+echo "iaca2 x64"
+cl /c /std:c++17 /O2 /arch:AVX /EHsc /DIACA2 /D_WIN64 %defines% /Fa%fname%.asm /FAsu %fname%.cpp > %fname%64.txt
 if %errorlevel% neq 0 (echo "cl error" && goto :error)
 ..\iaca2\iaca.exe -64 -arch %iarch% %fname%.obj > %fname%64_iaca.txt
 if %errorlevel% neq 0 (echo "iaca error" && goto :error)

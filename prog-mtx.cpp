@@ -39,6 +39,7 @@
 #include "timer.h"
 
 #define __vmathcall  __vectorcall
+//#define __vmathcall
 
 //#define __FMA__
 //#define __AVX2__
@@ -614,7 +615,8 @@ void __vmathcall mul_mtx4_mtx4_avx_fma(__m128* const r, __m128 const* const m, _
 void __vmathcall mul_mtx4_mtx4_avx_fma_m(__m128* const _r, __m128 const* const m, __m128 const* const n) {
 	mtx4& r = **reinterpret_cast<mtx4* const*>(&_r);
 
-	//IACA_FROM
+	//###
+	IACA_FROM
 	__m256 const mm[]{
 		_mm256_broadcast_ps(m + 0),
 		_mm256_broadcast_ps(m + 1),
@@ -626,7 +628,7 @@ void __vmathcall mul_mtx4_mtx4_avx_fma_m(__m128* const _r, __m128 const* const m
 
 	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
 	r.ymm[1] = fma(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+fma(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]);
-	//IACA_TO
+	IACA_TO
 }
 
 __m512 operator + (__m512 const a, __m512 const b) { return _mm512_add_ps(a, b); }
@@ -724,6 +726,9 @@ void mul_mtx4_mtx4_idle(__m128* const, __m128 const* const, __m128 const* const)
 	}
 
 int main() {
+	static_assert(sizeof(vec4)==sizeof(float)* 4, "vec4 size is not 16");
+	static_assert(sizeof(mtx4)==sizeof(float)*16, "mtx4 size is not 64");
+
 	mtx4 mref = mtx4::zero();
 	mul_mtx4_mtx4_unroll(mref, mtx4::identity(), mtx4::identity());
 	assert(mref == mtx4::identity());
@@ -874,52 +879,9 @@ int main() {
 }
 
 /*
-unroll : 69.95
-sse_v1 : 18.89   3.7
-sse_v2 : 19      3.68
-sse_v3 : 18.89   3.7
-sse_v4 : 18.89   3.7
-avx_v1 : 12.53   5,58
-avx_v1m: 12.53   5,58
-avx_v2 : 10.0    6.995
-avx_v2m: 10.0    6.995
-
-i7-8700K
-x86:
-cpuid+cycle tics: 843258
-cpuid+cycle tics per iteration: 0.843258
-loop    : 66.4909;  1.41009
-unroll  : 93.7578;  1.00000
-SSE_v1  : 22.9243;  4.08988
-SSE_v2  : 23.1071;  4.05753
-SSE_v3  : 23.2176;  4.03822
-SSE_v4m : 22.8327;  4.10629
-AVX_v1s : 17.6859;  5.30128
-AVX_v1m : 19.8134;  4.73205
-AVX_v2s : 12.8365;  7.30400
-AVX_v2m : 19.4661;  4.81646
-AVX+FMAs: 11.5527;  8.11565
-AVX+FMAm: 6.90574; 13.57680
-
-x64:
-cpuid+cycle tics: 1054144
-cpuid+cycle tics per iteration: 1.05414
-loop    : 61.9036;  1.31207
-unroll  : 81.2216;  1.00000
-SSE_v1  : 17.7330;  4.58024
-SSE_v2  : 18.1628;  4.47187
-SSE_v3  : 17.5821;  4.61957
-SSE_v4m : 18.0715;  4.49445
-AVX_v1s : 13.3131;  6.10089
-AVX_v1m : 12.8743;  6.30880
-AVX_v2s : 7.35544; 11.04240
-AVX_v2m : 6.67235; 12.17290
-AVX+FMAs: 7.61180; 10.67050
-AVX+FMAm: 5.56045; 14.60700
-
 i7-3770
 x86:
-    unroll:     1;     1;     70;  50.75
+    unroll:  1.00;  1.00;     70;  50.75
       loop:  0.30;  0.43; 233.60; 119.21
     sse_v1:  3.70;  1.84;  18.89;  27.51
     sse_v2:  3.68;  1.84;  19.00;  27.61
@@ -931,7 +893,7 @@ x86:
    avx_v2s:  6.99;  2.93;  10.00;  17.34
 
 x64:
-    unroll:     1;     1;     70;  68.60
+    unroll:  1.00;  1.00;     70;  68.60
       loop:  0.30;  0.57; 233.60; 119.37
     sse_v1:  3.70;  3.12;  18.89;  21.98
     sse_v2:  3.68;  3.25;  19.00;  21.09
@@ -941,4 +903,33 @@ x64:
    avx_v1s:  5.38;  4.06;  13.00;  16.90
    avx_v2m:  6.99;  7.45;  10.00;   9.20
    avx_v2s:  6.99;  4.68;  10.00;  14.64
+
+i7-8700K:
+x86:
+    unroll:  1.00;  1.00;  69.95;  40.25
+      loop:  0.30;  0.51; 233.60;  79.49
+    sse_v1:  3.70;  2.09;  18.89;  19.31
+    sse_v2:  3.68;  2.01;  19.00;  19.98
+    sse_v3:  3.70;  2.04;  18.89;  19.69
+   sse_v4s:  3.70;  2.05;  18.89;  19.67
+   avx_v1m:  5.38;  2.83;  13.00;  14.22
+   avx_v1s:  5.38;  2.85;  13.00;  14.13
+   avx_v2m:  6.99;  3.43;  10.00;  11.73
+   avx_v2s:  6.99;  3.41;  10.00;  11.81
+  AVX+FMAm:  7.60;  3.88;   9.21;  10.38
+  AVX+FMAs:  7.60;  3.90;   9.21;  10.32
+
+x64:
+    unroll:  1.00;  1.00;  69.95;  57.11
+      loop:  0.30;  0.75; 233.60;  75.73
+    sse_v1:  3.70;  3.61;  18.89;  15.83
+    sse_v2:  3.68;  3.32;  19.00;  17.22
+    sse_v3:  3.70;  3.59;  18.89;  15.92
+   sse_v4s:  3.70;  3.53;  18.89;  16.18
+   avx_v1m:  5.38;  8.12;  13.00;   7.03
+   avx_v1s:  5.38;  4.40;  13.00;  12.98
+   avx_v2m:  6.99; 10.57;  10.00;   5.40
+   avx_v2s:  6.99;  5.01;  10.00;  11.39
+  AVX+FMAm:  7.60;  5.87;   9.21;   9.73
+  AVX+FMAs:  7.60;  5.82;   9.21;   9.81
 */
