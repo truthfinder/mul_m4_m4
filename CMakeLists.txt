@@ -24,7 +24,7 @@ if(WIN32)
 	set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE /LTCG")
 else(WIN32)
 	add_executable(${PROJECT_NAME} ${SOURCES})
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma -mavx512f") # -mavx512f
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
 endif(WIN32)

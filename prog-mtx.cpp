@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
+#include <cmath>
 #include <chrono>
 #include <array>
 #include <stdlib.h>
@@ -39,15 +40,16 @@
 #include <intrin.h>
 #define __vmathcall  __vectorcall
 #else
+#include <cpuid> // __cpuid(leaf, eax, ebx, ecx, edx)
 #include <x86intrin.h>
 #define __vmathcall
 #endif
 
 #include "timer.h"
 
-#define __FMA__
-#define __AVX2__
-//#define __AVX512__
+//#define __FMA__
+//#define __AVX2__
+//#define __AVX512F__
 
 // 00, 01, 02, 03
 // 10, 11, 12, 13
@@ -300,10 +302,17 @@ void __vmathcall mul_mtx4_mtx4_sse_v1(__m128* const r, __m128 const* const m, __
 	//IACA_TO
 }
 
-__m128 operator + (__m128 const a, __m128 const b) { return _mm_add_ps(a, b); }
-__m128 operator - (__m128 const a, __m128 const b) { return _mm_sub_ps(a, b); }
-__m128 operator * (__m128 const a, __m128 const b) { return _mm_mul_ps(a, b); }
-__m128 operator / (__m128 const a, __m128 const b) { return _mm_div_ps(a, b); }
+struct alignas(sizeof(__m128)) m128 {
+	__m128 v;
+	m128() {}
+	m128(__m128 const a) : v(a) {}
+	operator __m128() const { return v; }
+};
+
+m128 operator + (m128 const a, m128 const b) { return _mm_add_ps(a, b); }
+m128 operator - (m128 const a, m128 const b) { return _mm_sub_ps(a, b); }
+m128 operator * (m128 const a, m128 const b) { return _mm_mul_ps(a, b); }
+m128 operator / (m128 const a, m128 const b) { return _mm_div_ps(a, b); }
 
 template <int a, int b, int c, int d> __m128 shuf(__m128 const u, __m128 const v)
 { return _mm_shuffle_ps(u, v, _MM_SHUFFLE(a, b, c, d)); }
@@ -345,16 +354,16 @@ void __vmathcall mul_mtx4_mtx4_sse_v3(__m128* const r, __m128 const* const m, __
 void __vmathcall mul_mtx4_mtx4_sse_v4(__m128* const r, __m128 const* const m, __m128 const* const n) {
 	//IACA_FROM
 	// 18.89; 16
-	_mm_stream_ps(&r[0].m128_f32[0],
+	_mm_stream_ps(reinterpret_cast<float*>(r + 0),
 		mad(m[0], shuf<3>(n[0]), m[1]*shuf<2>(n[0])) + mad(m[2], shuf<1>(n[0]), m[3]*shuf<0>(n[0])));
 
-	_mm_stream_ps(&r[1].m128_f32[0],
+	_mm_stream_ps(reinterpret_cast<float*>(r + 1),
 		mad(m[0], shuf<3>(n[1]), m[1]*shuf<2>(n[1])) + mad(m[2], shuf<1>(n[1]), m[3]*shuf<0>(n[1])));
 
-	_mm_stream_ps(&r[2].m128_f32[0],
+	_mm_stream_ps(reinterpret_cast<float*>(r + 2),
 		mad(m[0], shuf<3>(n[2]), m[1]*shuf<2>(n[2])) + mad(m[2], shuf<1>(n[2]), m[3]*shuf<0>(n[2])));
 
-	_mm_stream_ps(&r[3].m128_f32[0],
+	_mm_stream_ps(reinterpret_cast<float*>(r + 3),
 		mad(m[0], shuf<3>(n[3]), m[1]*shuf<2>(n[3])) + mad(m[2], shuf<1>(n[3]), m[3]*shuf<0>(n[3])));
 	//IACA_TO
 }
@@ -452,7 +461,7 @@ void __vmathcall mul_mtx4_mtx4_avx_v1(__m128* const r, __m128 const* const m, __
 	__m256 mm2 = _mm256_set_m128(m[2], m[2]);
 	__m256 mm3 = _mm256_set_m128(m[3], m[3]);
 
-	__m256 n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
 	__m256 y1 = _mm256_permute_ps(n0n1, 0xFF);//3,3,3,3; 0b11'11'11'11; 0b1111'1111
 	__m256 y2 = _mm256_permute_ps(n0n1, 0xAA);//2,2,2,2; 0b10'10'10'10; 0b1010'1010
 	__m256 y3 = _mm256_permute_ps(n0n1, 0x55);//1,1,1,1; 0b01'01'01'01; 0b0101'0101
@@ -467,7 +476,7 @@ void __vmathcall mul_mtx4_mtx4_avx_v1(__m128* const r, __m128 const* const m, __
 	y3 = _mm256_add_ps(y3, y4);
 	y1 = _mm256_add_ps(y1, y3);
 
-	__m256 n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
 	__m256 y5 = _mm256_permute_ps(n2n3, 0xFF);
 	__m256 y6 = _mm256_permute_ps(n2n3, 0xAA);
 	__m256 y7 = _mm256_permute_ps(n2n3, 0x55);
@@ -497,7 +506,7 @@ void __vmathcall mul_mtx4_mtx4_avx_v1m(__m128* const _r, __m128 const* const m, 
 	__m256 mm2 = _mm256_set_m128(m[2], m[2]);
 	__m256 mm3 = _mm256_set_m128(m[3], m[3]);
 
-	__m256 n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
 	__m256 y1 = _mm256_permute_ps(n0n1, 0xFF);//3,3,3,3; 0b11'11'11'11; 0b1111'1111
 	__m256 y2 = _mm256_permute_ps(n0n1, 0xAA);//2,2,2,2; 0b10'10'10'10; 0b1010'1010
 	__m256 y3 = _mm256_permute_ps(n0n1, 0x55);//1,1,1,1; 0b01'01'01'01; 0b0101'0101
@@ -512,7 +521,7 @@ void __vmathcall mul_mtx4_mtx4_avx_v1m(__m128* const _r, __m128 const* const m, 
 	y3 = _mm256_add_ps(y3, y4);
 	r.ymm[0] = _mm256_add_ps(y1, y3);
 
-	__m256 n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
 	__m256 y5 = _mm256_permute_ps(n2n3, 0xFF);
 	__m256 y6 = _mm256_permute_ps(n2n3, 0xAA);
 	__m256 y7 = _mm256_permute_ps(n2n3, 0x55);
@@ -530,10 +539,17 @@ void __vmathcall mul_mtx4_mtx4_avx_v1m(__m128* const _r, __m128 const* const m, 
 	//IACA_TO
 }
 
-__m256 operator + (__m256 const a, __m256 const b) { return _mm256_add_ps(a, b); }
-__m256 operator - (__m256 const a, __m256 const b) { return _mm256_sub_ps(a, b); }
-__m256 operator * (__m256 const a, __m256 const b) { return _mm256_mul_ps(a, b); }
-__m256 operator / (__m256 const a, __m256 const b) { return _mm256_div_ps(a, b); }
+struct alignas(sizeof(__m256)) m256 {
+	__m256 v;
+	m256() {}
+	m256(__m256 const a) : v(a) {}
+	operator __m256() const { return v; }
+};
+
+m256 operator + (m256 const a, m256 const b) { return _mm256_add_ps(a, b); }
+m256 operator - (m256 const a, m256 const b) { return _mm256_sub_ps(a, b); }
+m256 operator * (m256 const a, m256 const b) { return _mm256_mul_ps(a, b); }
+m256 operator / (m256 const a, m256 const b) { return _mm256_div_ps(a, b); }
 
 template <int i> __m256 perm(__m256 const v)
 { return _mm256_permute_ps(v, _MM_SHUFFLE(i, i, i, i)); }
@@ -559,11 +575,11 @@ void __vmathcall mul_mtx4_mtx4_avx_v2(__m128* const r, __m128 const* const m, __
 		_mm256_broadcast_ps(m+3)
 	};
 
-	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 const n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
 	_mm256_stream_ps(reinterpret_cast<float*>(r),
 		mad(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+mad(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]));
 
-	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 const n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
 	_mm256_stream_ps(reinterpret_cast<float*>(r)+8,
 		mad(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+mad(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]));
 
@@ -582,10 +598,10 @@ void __vmathcall mul_mtx4_mtx4_avx_v2m(__m128* const _r, __m128 const* const m, 
 		_mm256_broadcast_ps(m+3)
 	};
 
-	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 const n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
 	r.ymm[0] = mad(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+mad(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]);
 
-	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 const n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
 	r.ymm[1] = mad(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+mad(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]);
 
 	//IACA_TO
@@ -605,12 +621,12 @@ void __vmathcall mul_mtx4_mtx4_avx_fma(__m128* const r, __m128 const* const m, _
 		_mm256_broadcast_ps(m + 2),
 		_mm256_broadcast_ps(m + 3) };
 
-	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
-	_mm256_stream_ps(&r[0].m128_f32[0],
+	__m256 const n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
+	_mm256_stream_ps(reinterpret_cast<float*>(r + 0),
 		fma(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+fma(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]));
 
-	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
-	_mm256_stream_ps(&r[2].m128_f32[0],
+	__m256 const n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
+	_mm256_stream_ps(reinterpret_cast<float*>(r + 2),
 		fma(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+fma(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]));
 
 	//IACA_TO
@@ -627,18 +643,27 @@ void __vmathcall mul_mtx4_mtx4_avx_fma_m(__m128* const _r, __m128 const* const m
 		_mm256_broadcast_ps(m + 2),
 		_mm256_broadcast_ps(m + 3) };
 
-	__m256 const n0n1 = _mm256_load_ps(&n[0].m128_f32[0]);
+	__m256 const n0n1 = _mm256_load_ps(reinterpret_cast<float const*>(n + 0));
 	r.ymm[0] = fma(perm<3>(n0n1), mm[0], perm<2>(n0n1)*mm[1])+fma(perm<1>(n0n1), mm[2], perm<0>(n0n1)*mm[3]);
 
-	__m256 const n2n3 = _mm256_load_ps(&n[2].m128_f32[0]);
+	__m256 const n2n3 = _mm256_load_ps(reinterpret_cast<float const*>(n + 2));
 	r.ymm[1] = fma(perm<3>(n2n3), mm[0], perm<2>(n2n3)*mm[1])+fma(perm<1>(n2n3), mm[2], perm<0>(n2n3)*mm[3]);
 	IACA_TO
 }
 
-__m512 operator + (__m512 const a, __m512 const b) { return _mm512_add_ps(a, b); }
-__m512 operator - (__m512 const a, __m512 const b) { return _mm512_sub_ps(a, b); }
-__m512 operator * (__m512 const a, __m512 const b) { return _mm512_mul_ps(a, b); }
-__m512 operator / (__m512 const a, __m512 const b) { return _mm512_div_ps(a, b); }
+#ifdef __AVX512F__
+
+struct alignas(sizeof(__m512)) m512 {
+	__m512 v;
+	m512() {}
+	m512(__m512 const a) : v(a) {}
+	operator __m512() const { return v; }
+};
+
+m512 operator + (m512 const a, m512 const b) { return _mm512_add_ps(a, b); }
+m512 operator - (m512 const a, m512 const b) { return _mm512_sub_ps(a, b); }
+m512 operator * (m512 const a, m512 const b) { return _mm512_mul_ps(a, b); }
+m512 operator / (m512 const a, m512 const b) { return _mm512_div_ps(a, b); }
 
 template <int i> __m512 perm(__m512 const v)
 { return _mm512_permute_ps(v, _MM_SHUFFLE(i, i, i, i)); }
@@ -658,13 +683,13 @@ void __vmathcall mul_mtx4_mtx4_avx512(__m128* const r, __m128 const* const m, __
 		_mm512_broadcast_f32x4(m[2]),
 		_mm512_broadcast_f32x4(m[3]) };
 
-	__m512 const n = _mm512_load_ps(&_n[0].m128_f32[0]);
-	_mm512_stream_ps(&r[0].m128_f32[0],
+	__m512 const n = _mm512_load_ps(reinterpret_cast<float const*>(_n));
+	_mm512_stream_ps(reinterpret_cast<float*>(r),
 		fma(perm<3>(n), mm[0], perm<2>(n)*mm[1])+fma(perm<1>(n), mm[2], perm<0>(n)*mm[3]));
 	//IACA_TO
 }
 
-void __vmathcall mul_mtx4_mtx4_avx512_m(__m128* const _r, __m128 const* const m, __m128 const* const _n) {
+void __vmathcall mul_mtx4_mtx4_avx512m(__m128* const _r, __m128 const* const m, __m128 const* const _n) {
 	mtx4& r = **reinterpret_cast<mtx4* const*>(&_r);
 	//IACA_FROM
 	__m512 const mm[]{
@@ -673,10 +698,12 @@ void __vmathcall mul_mtx4_mtx4_avx512_m(__m128* const _r, __m128 const* const m,
 		_mm512_broadcast_f32x4(m[2]),
 		_mm512_broadcast_f32x4(m[3]) };
 
-	__m512 const n = _mm512_load_ps(&_n[0].m128_f32[0]);
+	__m512 const n = _mm512_load_ps(reinterpret_cast<float const*>(_n + 0));
 	r.zmm = fma(perm<3>(n), mm[0], perm<2>(n)*mm[1])+fma(perm<1>(n), mm[2], perm<0>(n)*mm[3]);
 	//IACA_TO
 }
+
+#endif // __AVX512F__
 
 mtx4 get_mtx4_1() {
 	return mtx4(
@@ -789,8 +816,8 @@ int main() {
 		{ "AVX+FMAm", mul_mtx4_mtx4_avx_fma_m,   9.21f,   8.00f },
 		{ "AVX+FMAs", mul_mtx4_mtx4_avx_fma  ,   9.21f,   8.00f },
 #		endif
-#		ifdef __AVX512__
-		{ "AVX512m", mul_mtx4_mtx4_avx512m   ,   4.79f,   5.42f  };
+#		ifdef __AVX512F__
+		{ "AVX512m", mul_mtx4_mtx4_avx512m   ,   4.79f,   5.42f  },
 		{ "AVX512s", mul_mtx4_mtx4_avx512    ,   4.79f,   5.42f  },
 #		endif
 	};
@@ -853,7 +880,7 @@ int main() {
 	SPEED_TEST(mul_mtx4_mtx4_avx_fma_m, 10);
 	SPEED_TEST(mul_mtx4_mtx4_avx_fma  , 11);
 #	endif
-#	ifdef __AVX512__
+#	ifdef __AVX512F__
 	SPEED_TEST(mul_mtx4_mtx4_avx512m  , 12);
 	SPEED_TEST(mul_mtx4_mtx4_avx512   , 13);
 #	endif

@@ -55,14 +55,18 @@ class rdtsc_timer {
 public:
 	static int64_t tics_start() noexcept {
 		int info[4];
+#		ifdef WIN32
 		__cpuid(info, 1);
+#		endif
 		return __rdtsc();
 	}
 	static int64_t tics_stop() noexcept {
 		int info[4];
 		unsigned int aux;
 		int64_t r = __rdtscp(&aux);
+#		ifdef WIN32
 		__cpuid(info, 1);
+#		endif
 		return r;
 	}
 	static int64_t freq() noexcept {
