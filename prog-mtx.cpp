@@ -31,10 +31,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
-#include <intrin.h>
 #include <chrono>
 #include <array>
 #include <stdlib.h>
+
+#ifdef WIN32
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 
 #include "timer.h"
 
