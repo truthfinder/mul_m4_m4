@@ -37,14 +37,13 @@
 
 #ifdef WIN32
 #include <intrin.h>
+#define __vmathcall  __vectorcall
 #else
 #include <x86intrin.h>
+#define __vmathcall
 #endif
 
 #include "timer.h"
-
-#define __vmathcall  __vectorcall
-//#define __vmathcall
 
 #define __FMA__
 #define __AVX2__
