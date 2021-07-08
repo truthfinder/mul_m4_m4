@@ -739,7 +739,9 @@ ts speed_test(F&& f, mtx4 const* const src, mtx4* const dst, std::size_t const s
 }
 
 void mul_mtx4_mtx4_idle(__m128* const, __m128 const* const, __m128 const* const) {
+#	ifdef WIN32
 	__nop();
+#	endif
 }
 
 #define SPEED_TEST(f, idx) \
