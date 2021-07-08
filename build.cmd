@@ -2,8 +2,8 @@
 
 taskkill /IM PerfWatson2.exe /FI "STATUS eq RUNNING" /F
 
-rd /S /Q _build
-mkdir _build && cd _build
+rd /S /Q build64
+mkdir build64 && cd build64
 
 rem mkdir build64 & pushd build64
 
