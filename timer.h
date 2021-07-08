@@ -57,6 +57,8 @@ public:
 		int info[4];
 #		ifdef WIN32
 		__cpuid(info, 1);
+#		else
+		__cpuid(1, info[0], info[1], info[2], info[3]);
 #		endif
 		return __rdtsc();
 	}
@@ -66,6 +68,8 @@ public:
 		int64_t r = __rdtscp(&aux);
 #		ifdef WIN32
 		__cpuid(info, 1);
+#		else
+		__cpuid(1, info[0], info[1], info[2], info[3]);
 #		endif
 		return r;
 	}
