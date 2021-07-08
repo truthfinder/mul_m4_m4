@@ -41,8 +41,8 @@
 #define __vmathcall  __vectorcall
 //#define __vmathcall
 
-//#define __FMA__
-//#define __AVX2__
+#define __FMA__
+#define __AVX2__
 //#define __AVX512__
 
 // 00, 01, 02, 03

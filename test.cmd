@@ -13,6 +13,9 @@
 
 @echo off
 
+@rem set VSPATH=C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\Tools\VsDevCmd.bat
+set VSPATH=C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\Tools\VsDevCmd.bat 
+
 set arch="x32"
 set iaca=0
 set iaca2=0
@@ -41,8 +44,8 @@ if %%x==skx (set iarch="SKX" && echo "SKX")
 
 @rem if not exist filename.txt exit /b 1
 
-if %arch%=="x32" call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\Tools\VsDevCmd.bat" -arch=x86
-if %arch%=="x64" call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\Tools\VsDevCmd.bat" -arch=amd64
+if %arch%=="x32" call "%VSPATH%" -arch=x86
+if %arch%=="x64" call "%VSPATH%" -arch=amd64
 
 del *.exe
 del %fname%*.txt
