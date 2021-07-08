@@ -40,7 +40,7 @@
 #include <intrin.h>
 #define __vmathcall  __vectorcall
 #else
-#include <cpuid> // __cpuid(leaf, eax, ebx, ecx, edx)
+#include <cpuid.h> // __cpuid(leaf, eax, ebx, ecx, edx)
 #include <x86intrin.h>
 #define __vmathcall
 #endif
