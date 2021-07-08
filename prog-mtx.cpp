@@ -304,7 +304,7 @@ void __vmathcall mul_mtx4_mtx4_sse_v1(__m128* const r, __m128 const* const m, __
 
 struct alignas(sizeof(__m128)) m128 {
 	__m128 v;
-	m128() {}
+	m128() {} // = default makes overhead?
 	m128(__m128 const a) : v(a) {}
 	operator __m128() const { return v; }
 };
@@ -889,6 +889,8 @@ int main() {
 
 	// display results
 	std::cout << "---------------" << std::endl;
+
+	std::cout << "      name: rcoef   coef   rtics    tics" << std::endl;
 
 	static const double K = 1. / (size * icount);
 	for (size_t i = 0; i < std::size(funcs); i++) {
