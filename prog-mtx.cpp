@@ -36,6 +36,8 @@
 #include <array>
 #include <stdlib.h>
 
+#define SKIP_GLM 1
+
 #if !defined SKIP_GLM
 #define GLM_FORCE_SSE2
 #define GLM_FORCE_SWIZZLE
