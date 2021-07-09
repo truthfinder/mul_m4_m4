@@ -36,16 +36,102 @@
 #include <array>
 #include <stdlib.h>
 
-#ifdef WIN32
+#if !defined SKIP_GLM
+#define GLM_FORCE_SSE2
+#define GLM_FORCE_SWIZZLE
+#include <glm/vec3.hpp>   // glm::vec3
+#include <glm/vec4.hpp>   // glm::vec4
+#include <glm/mat4x4.hpp> // glm::mat4
+#include <glm/simd/matrix.h>
+#endif
+
+#ifdef _MSC_VER
 #include <intrin.h>
 #define __vmathcall  __vectorcall
 #else
-#include <cpuid.h> // __cpuid(leaf, eax, ebx, ecx, edx)
+#include <cpuid.h>
 #include <x86intrin.h>
 #define __vmathcall
 #endif
 
-#include "timer.h"
+//std::chrono::duration_cast<std::chrono::seconds>(tp-tp).count()
+
+template <typename T> class check_ts { // temporary class for performance debugging purposes
+public:
+	static int64_t freq() noexcept { return T::freq(); }
+
+	check_ts(bool const started = true) noexcept : t(0ll), r(0ll), f(1. / T::freq()) { if (started) { start(); } }
+	~check_ts() noexcept { stop(); }
+
+	int64_t      start() noexcept { return t = T::tics_start(); }
+	int64_t       stop() noexcept { return r = T::tics_stop() - t; }
+	double    stop_sec() noexcept { return f * stop(); }
+	int64_t      reset() noexcept { int64_t c = T::tics_start(); r = c - t; t = c; return r; }
+	double   reset_sec() noexcept { return f * reset(); }
+	int64_t     passed() const noexcept { return r; }
+	int64_t  passed_ms() const noexcept {
+		std::chrono::duration<int64_t, std::ratio<1, T::freq()>> const u(passed());
+		return std::chrono::duration_cast<std::chrono::milliseconds>(u).count();
+	}
+	int64_t passed_mks() const noexcept {
+		std::chrono::duration<int64_t, std::ratio<1, T::freq()>> const u(passed());
+		return std::chrono::duration_cast<std::chrono::microseconds>(u).count();
+	}
+	int64_t passed_ns() const noexcept {
+		return passed();
+	}
+	double  passed_sec() const noexcept { return f * passed(); }
+	int64_t    current() const noexcept { return T::tics() - t; }
+	double current_sec() const noexcept { return f * current(); }
+
+	check_ts& operator += (check_ts const& ts) noexcept { r += ts.r; return *this; }
+	check_ts& operator -= (check_ts const& ts) noexcept { r -= ts.r; return *this; }
+	check_ts& operator += (int64_t const   d) noexcept { r += d; return *this; }
+	check_ts& operator -= (int64_t const   d) noexcept { r -= d; return *this; }
+
+private:
+	int64_t t, r;
+	double f;
+};
+
+class hrc_timer { // temporary class for performance debugging purposes
+	using clock = std::chrono::high_resolution_clock;
+	//using frq = std::chrono::nanoseconds = clock::type?;
+public:
+	static int64_t tics_start() noexcept { return clock::now().time_since_epoch().count(); }
+	static int64_t tics_stop() noexcept { return tics_start(); }
+	static constexpr int64_t freq() noexcept { return clock::period::den; }
+};
+
+class rdtsc_timer {
+public:
+	static int64_t tics_start() noexcept {
+		int info[4];
+#		ifdef WIN32
+		__cpuid(info, 1);
+#		else
+		__cpuid(1, info[0], info[1], info[2], info[3]);
+#		endif
+		return __rdtsc();
+	}
+	static int64_t tics_stop() noexcept {
+		int info[4];
+		unsigned int aux;
+		int64_t r = __rdtscp(&aux);
+#		ifdef WIN32
+		__cpuid(info, 1);
+#		else
+		__cpuid(1, info[0], info[1], info[2], info[3]);
+#		endif
+		return r;
+	}
+	static int64_t freq() noexcept {
+		return 3'700'000'000ll;
+	}
+};
+
+typedef check_ts<hrc_timer> hts;
+typedef check_ts<rdtsc_timer> rts;
 
 //#define __FMA__
 //#define __AVX2__
@@ -68,7 +154,7 @@ struct alignas(sizeof(__m128)) vec4 {
 		float arr[4];
 	};
 
-	vec4() {}
+	vec4() = default;
 	vec4(float a, float b, float c, float d) : w(d), z(c), y(b), x(a) {}
 
 	static bool equ(float const a, float const b, float t = .00001f) {
@@ -102,7 +188,7 @@ struct alignas(sizeof(__m512)) mtx4 {
 		vec4 v[4];
 	};
 
-	mtx4() {}
+	mtx4() = default;
 	mtx4(
 		float i00, float i01, float i02, float i03,
 		float i10, float i11, float i12, float i13,
@@ -148,6 +234,30 @@ std::ostream& operator << (std::ostream& os, mtx4 const& m) {
 		<< '|' << std::setw(w) << m._20 << ',' << std::setw(w) << m._21 << ',' << std::setw(w) << m._22 << ',' << std::setw(w) << m._23 << '|' << std::endl
 		<< '|' << std::setw(w) << m._30 << ',' << std::setw(w) << m._31 << ',' << std::setw(w) << m._32 << ',' << std::setw(w) << m._33 << '|';
 }
+
+#if defined GLM_VERSION
+
+std::ostream& operator << (std::ostream& os, glm::mat4 const& m) {
+	return os
+		<< '|' << m[0][0] << ',' << m[0][1] << ',' << m[0][2] << ',' << m[0][3] << '|' << std::endl
+		<< '|' << m[1][0] << ',' << m[1][1] << ',' << m[1][2] << ',' << m[1][3] << '|' << std::endl
+		<< '|' << m[2][0] << ',' << m[2][1] << ',' << m[2][2] << ',' << m[2][3] << '|' << std::endl
+		<< '|' << m[3][0] << ',' << m[3][1] << ',' << m[3][2] << ',' << m[3][3] << '|';
+}
+
+void __vmathcall mul_mtx4_mtx4_glm(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
+	static_assert(sizeof(glm::mat4) == sizeof(__m128) * 4);
+	glm::mat4& r = **reinterpret_cast<glm::mat4* const*>(&_r);
+	glm::mat4 const& m = **reinterpret_cast<glm::mat4 const* const*>(&_m);
+	glm::mat4 const& n = **reinterpret_cast<glm::mat4 const* const*>(&_n);
+	r = m * n;
+}
+
+void __vmathcall mul_mtx4_mtx4_glm_sse(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
+	glm_mat4_mul(_m, _n, _r);
+}
+
+#endif // SKIP_GLM
 
 void __vmathcall mul_mtx4_mtx4_loop(__m128* const _r, __m128 const* const _m, __m128 const* const _n) {
 	typedef float raw4x4[4][4];
@@ -804,6 +914,10 @@ int main() {
 	func_data_t funcs[] {
 		{ "unroll" , mul_mtx4_mtx4_unroll    ,  69.95f,  64.00f },
 		{ "loop"   , mul_mtx4_mtx4_loop      , 233.60f, 190.08f },
+#       if defined GLM_VERSION
+		{ "glm"    , mul_mtx4_mtx4_glm        ,  69.95f,  64.00f }, // expecting same as unroll timings
+		{ "glm_sse", mul_mtx4_mtx4_glm_sse    ,  18.89f,  16.00f }, // expecting same as raw sse timings
+#       endif
 		{ "sse_v1" , mul_mtx4_mtx4_sse_v1    ,  18.89f,  16.00f },
 		{ "sse_v2" , mul_mtx4_mtx4_sse_v2    ,  19.00f,  16.00f },
 		{ "sse_v3" , mul_mtx4_mtx4_sse_v3    ,  18.89f,  16.00f },
@@ -852,7 +966,34 @@ int main() {
 
 	// check result correctness
 	for (size_t i = 0; i < std::size(funcs); i++) {
-		std::get<1>(funcs[i])(r, m, n);
+#if defined GLM_VERSION
+		if (std::get<1>(funcs[i]) == mul_mtx4_mtx4_glm) {
+			// make sure glm::mat4 format was understood correctly
+			glm::mat4 _m = *reinterpret_cast<glm::mat4 const* const>(&m);
+			glm::mat4 _n = *reinterpret_cast<glm::mat4 const* const>(&n);
+			for (int i = 0; i < 4; _m[i] = _m[i].wzyx(), i++);
+			for (int i = 0; i < 4; _n[i] = _n[i].wzyx(), i++);
+			glm::mat4 _r = _m * _n;
+			for (int i = 0; i < 4; _r[i] = _r[i].wzyx(), i++);
+			r = *reinterpret_cast<mtx4 const* const>(&_r);
+		} else if (std::get<1>(funcs[i]) == mul_mtx4_mtx4_glm_sse) {
+			// make sure glm::mat4 format was understood correctly
+			glm_vec4 _m[4]{ shuf<0,1,2,3>(m[0]), shuf<0,1,2,3>(m[1]), shuf<0,1,2,3>(m[2]), shuf<0,1,2,3>(m[3]) };
+			glm_vec4 _n[4]{ shuf<0,1,2,3>(n[0]), shuf<0,1,2,3>(n[1]), shuf<0,1,2,3>(n[2]), shuf<0,1,2,3>(n[3]) };
+			glm_vec4 _r[4];
+			mul_mtx4_mtx4_glm_sse(_r, _m, _n);
+			for (int i = 0; i < 4; r[i] = shuf<0, 1, 2, 3>(_r[i]), i++);
+		} else {
+#endif
+			std::get<1>(funcs[i])(r, m, n);
+#if defined GLM_VERSION
+		}
+#endif
+		if (!(r == mref)) {
+			std::cout << i << ": " << std::get<0>(funcs[i]) << std::endl;
+			std::cout << r << std::endl;
+			std::cout << mref << std::endl;
+		}
 		assert(r == mref);
 	}
 
@@ -865,30 +1006,35 @@ int main() {
 	}
 	//*/
 
+	size_t counter = 0;
 	// run speed tests
-	SPEED_TEST(mul_mtx4_mtx4_unroll   ,  0)
-	SPEED_TEST(mul_mtx4_mtx4_loop     ,  1);
-	SPEED_TEST(mul_mtx4_mtx4_sse_v1   ,  2);
-	SPEED_TEST(mul_mtx4_mtx4_sse_v2   ,  3);
-	SPEED_TEST(mul_mtx4_mtx4_sse_v3   ,  4);
-	SPEED_TEST(mul_mtx4_mtx4_sse_v4   ,  5);
+	SPEED_TEST(mul_mtx4_mtx4_unroll   , counter++)
+	SPEED_TEST(mul_mtx4_mtx4_loop     , counter++);
+#   if defined GLM_VERSION
+	SPEED_TEST(mul_mtx4_mtx4_glm      , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_glm_sse  , counter++);
+#   endif
+	SPEED_TEST(mul_mtx4_mtx4_sse_v1   , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v2   , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v3   , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_sse_v4   , counter++);
 #	ifdef __AVX__
-	SPEED_TEST(mul_mtx4_mtx4_avx_v1m  ,  6);
-	SPEED_TEST(mul_mtx4_mtx4_avx_v1   ,  7);
-	SPEED_TEST(mul_mtx4_mtx4_avx_v2m  ,  8);
-	SPEED_TEST(mul_mtx4_mtx4_avx_v2   ,  9);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v1m  , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v1   , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v2m  , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_avx_v2   , counter++);
 #	endif
 #	ifdef __FMA__
-	SPEED_TEST(mul_mtx4_mtx4_avx_fma_m, 10);
-	SPEED_TEST(mul_mtx4_mtx4_avx_fma  , 11);
+	SPEED_TEST(mul_mtx4_mtx4_avx_fma_m, counter++);
+	SPEED_TEST(mul_mtx4_mtx4_avx_fma  , counter++);
 #	endif
 #	ifdef __AVX512F__
-	SPEED_TEST(mul_mtx4_mtx4_avx512m  , 12);
-	SPEED_TEST(mul_mtx4_mtx4_avx512   , 13);
+	SPEED_TEST(mul_mtx4_mtx4_avx512m  , counter++);
+	SPEED_TEST(mul_mtx4_mtx4_avx512   , counter++);
 #	endif
 
 	// display results
-	std::cout << "---------------" << std::endl;
+	std::cout << "-----------------------------------------" << std::endl;
 
 	std::cout << "      name: rcoef   coef   rtics    tics" << std::endl;
 
@@ -903,7 +1049,16 @@ int main() {
 			<< std::endl;
 	}
 
-	std::cout << "---------------" << std::endl;
+	std::cout << "-----------------------------------------" << std::endl;
+
+	std::cout << "rcoef: performance coefficient from reference theoretical cpu tics" << std::endl;
+	std::cout << "coef : performance coefficient from real cpu tics" << std::endl;
+	std::cout << "rtics: reference theoretical cpu tics" << std::endl;
+	std::cout << "tics : real cpu tics" << std::endl;
+
+	std::cout << "reference value is taken from non-simd unrolled calculations" << std::endl;
+	std::cout << "coef = value / reference_value, so coef > 1 means function is faster than the reference" << std::endl;
+
 	std::cout << dst[0] << std::endl;
 
 	_mm_free(src);

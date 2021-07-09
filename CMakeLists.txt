@@ -15,6 +15,8 @@ source_group("" FILES ${SOURCES})
 
 add_definitions(-DIACA_MARKS_OFF)
 
+include_directories(glm)
+
 if(WIN32)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /GL /arch:AVX /EHsc /D_WIN64")
 	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++latest")
